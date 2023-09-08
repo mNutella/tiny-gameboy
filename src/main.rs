@@ -66,6 +66,7 @@ impl std::convert::From<u8> for FlagsRegister {
 
 enum Instruction {
     ADD(ArithmeticTarget),
+    JP(JumpType),
 }
 
 enum ArithmeticTarget {
@@ -79,14 +80,85 @@ enum ArithmeticTarget {
     L,
 }
 
+enum JumpType {
+    NotZero,
+    Zero,
+    NotCarry,
+    Carry,
+    Always,
+}
+
+impl Instruction {
+    fn from_byte(byte: u8, prefixed: bool) -> Option<Instruction> {
+        if prefixed {
+            Instruction::from_byte_prefixed(byte)
+        } else {
+            Instruction::from_byte_not_prefixed(byte)
+        }
+    }
+
+    fn from_byte_prefixed(byte: u8) -> Option<Instruction> {
+        match byte {
+            0x02 => None,
+            _ => None,
+        }
+    }
+
+    fn from_byte_not_prefixed(byte: u8) -> Option<Instruction> {
+        match byte {
+            0x02 => None,
+            _ => None,
+        }
+    }
+}
+
 struct CPU {
     registers: Registers,
+    pc: u16,
+    bus: MemoryBus,
+}
+
+struct MemoryBus {
+    memory: [u8; 0xFFFF],
+}
+
+impl MemoryBus {
+    fn fetch(&self, address: u16) -> u8 {
+        self.memory[address as usize]
+    }
 }
 
 impl CPU {
-    fn execute(&mut self, instruction: Instruction) {
+    fn step(&mut self) {
+        let mut instruction_byte = self.bus.fetch(self.pc);
+        let prefixed = instruction_byte == 0xCB;
+
+        if prefixed {
+            instruction_byte = self.bus.fetch(self.pc.wrapping_add(1));
+        }
+
+        let instruction = self.decode(instruction_byte, prefixed);
+
+        self.pc = self.execute(instruction);
+    }
+
+    fn decode(&self, instruction_byte: u8, prefixed: bool) -> Instruction {
+        if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed) {
+            instruction
+        } else {
+            let description = format!(
+                "0x{}{:x}",
+                if prefixed { "cb" } else { "" },
+                instruction_byte
+            );
+            panic!("Unkown instruction found for: {}", description);
+        }
+    }
+
+    fn execute(&mut self, instruction: Instruction) -> u16 {
         use ArithmeticTarget::*;
         use Instruction::*;
+        use JumpType::*;
 
         match instruction {
             ADD(target) => match target {
@@ -95,9 +167,21 @@ impl CPU {
                     let new_value = self.add(value);
 
                     self.registers.a = new_value;
+                    self.pc.wrapping_add(1)
                 }
-                _ => {}
+                _ => self.pc,
             },
+            JP(jump_type) => {
+                let jump_condition = match jump_type {
+                    NotZero => !self.registers.f.zero,
+                    Zero => self.registers.f.zero,
+                    NotCarry => !self.registers.f.carry,
+                    Carry => self.registers.f.carry,
+                    Always => true,
+                };
+
+                self.jump(jump_condition)
+            }
         }
     }
 
@@ -112,6 +196,17 @@ impl CPU {
         self.registers.f.half_carry = (self.registers.a & 0xF) + (value & 0xF) > 0xF;
 
         new_value
+    }
+
+    fn jump(&mut self, should_jump: bool) -> u16 {
+        if should_jump {
+            let least_significant_byte = self.bus.fetch(self.pc + 1) as u16;
+            let most_significant_byte = self.bus.fetch(self.pc + 2) as u16;
+
+            (most_significant_byte << 8) | least_significant_byte
+        } else {
+            self.pc.wrapping_add(3)
+        }
     }
 }
 
