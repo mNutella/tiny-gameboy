@@ -11,19 +11,19 @@ struct Registers {
     c: u8,
     d: u8,
     e: u8,
-    f: u8,
+    f: FlagsRegister,
     h: u8,
     l: u8,
 }
 
 impl Registers {
-    fn get_af(&self) -> u16 {
-        (self.a as u16) << 8 | self.f as u16
+    fn get_bc(&self) -> u16 {
+        (self.b as u16) << 8 | self.c as u16
     }
 
-    fn set_af(&mut self, value: u16) {
-        self.a = ((value & 0xFF00) >> 8) as u8;
-        self.f = (value & 0xFF) as u8;
+    fn set_bc(&mut self, value: u16) {
+        self.b = ((value & 0xFF00) >> 8) as u8;
+        self.c = (value & 0xFF) as u8;
     }
 }
 
@@ -61,6 +61,57 @@ impl std::convert::From<u8> for FlagsRegister {
             half_carry,
             carry,
         }
+    }
+}
+
+enum Instruction {
+    ADD(ArithmeticTarget),
+}
+
+enum ArithmeticTarget {
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    H,
+    L,
+}
+
+struct CPU {
+    registers: Registers,
+}
+
+impl CPU {
+    fn execute(&mut self, instruction: Instruction) {
+        use ArithmeticTarget::*;
+        use Instruction::*;
+
+        match instruction {
+            ADD(target) => match target {
+                C => {
+                    let value = self.registers.c;
+                    let new_value = self.add(value);
+
+                    self.registers.a = new_value;
+                }
+                _ => {}
+            },
+        }
+    }
+
+    fn add(&mut self, value: u8) -> u8 {
+        let (new_value, did_overflow) = self.registers.a.overflowing_add(value);
+
+        self.registers.f.zero = false;
+        self.registers.f.subtract = false;
+        self.registers.f.carry = did_overflow;
+        // Half Carry is set if adding the lower nibbles of the value and register A
+        // together result in a value bigger than 0xF
+        self.registers.f.half_carry = (self.registers.a & 0xF) + (value & 0xF) > 0xF;
+
+        new_value
     }
 }
 
