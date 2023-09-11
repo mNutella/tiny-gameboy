@@ -179,6 +179,8 @@ enum Instruction {
     POP(PopTarget),
     CALL(JumpType),
     RET(JumpType),
+    NOP,
+    HALT,
 }
 
 impl Instruction {
@@ -210,6 +212,7 @@ struct CPU {
     pc: u16,
     sp: u16,
     bus: MemoryBus,
+    is_halted: bool,
 }
 
 struct MemoryBus {
@@ -267,6 +270,10 @@ impl CPU {
     fn execute(&mut self, instruction: Instruction) -> u16 {
         use Instruction::*;
         use LoadType::*;
+
+        if self.is_halted {
+            return self.pc;
+        }
 
         match instruction {
             ADD(target) => match target {
@@ -378,6 +385,11 @@ impl CPU {
                 let should_jump = jump_type.should_jump(&self.registers.f);
 
                 self.return_(should_jump)
+            }
+            NOP => self.pc.wrapping_add(1),
+            HALT => {
+                self.is_halted = true;
+                self.pc
             }
             _ => {
                 todo!("Implement rest instructions")
