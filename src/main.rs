@@ -400,7 +400,7 @@ impl CPU {
     fn add(&mut self, value: u8) -> u8 {
         let (new_value, did_overflow) = self.registers.a.overflowing_add(value);
 
-        self.registers.f.zero = false;
+        self.registers.f.zero = new_value == 0;
         self.registers.f.subtract = false;
         self.registers.f.carry = did_overflow;
         // Half Carry is set if adding the lower nibbles of the value and register A
