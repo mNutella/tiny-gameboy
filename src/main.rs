@@ -207,6 +207,69 @@ impl Instruction {
     }
 }
 
+const VRAM_BEGIN: usize = 0x8000;
+const VRAM_END: usize = 0x9FFF;
+const VRAM_SIZE: usize = VRAM_END - VRAM_BEGIN + 1;
+
+#[derive(Copy, Clone)]
+enum TilePixelValue {
+    White,
+    Gray,
+    Light,
+    Black,
+}
+
+type Tile = [[TilePixelValue; 8]; 8];
+fn empty_tile() -> Tile {
+    [[TilePixelValue::Gray; 8]; 8]
+}
+
+struct GPU {
+    memory: [u8; VRAM_SIZE],
+    tiles: [Tile; 384],
+}
+
+impl GPU {
+    fn read_memory(&self, address: usize) -> u8 {
+        self.memory[address]
+    }
+
+    fn write_memory(&mut self, address: usize, value: u8) {
+        self.memory[address] = value;
+
+        if address >= 0x1800 {
+            return;
+        }
+
+        let normalized_address = address & 0xFFFE;
+
+        let ms_byte = self.memory[normalized_address];
+        let ls_byte = self.memory[normalized_address + 1];
+
+        let tile_address = address / 16;
+        let row_address = (address % 16) / 2;
+
+        for pixel_address in 0..8 {
+            let mask = 1 << (7 - pixel_address);
+            let l_ms_byte = ms_byte & mask;
+            let l_ls_byte = ls_byte & mask;
+
+            let value = match (l_ms_byte != 0, l_ls_byte != 0) {
+                (true, true) => TilePixelValue::White,
+                (true, false) => TilePixelValue::Gray,
+                (false, true) => TilePixelValue::Light,
+                (false, false) => TilePixelValue::Black,
+            };
+
+            self.tiles[tile_address][row_address][pixel_address] = value;
+        }
+    }
+}
+
+fn get_vram_address(address: u16) -> usize {
+    address as usize - VRAM_BEGIN
+}
+
 struct CPU {
     registers: Registers,
     pc: u16,
@@ -217,15 +280,22 @@ struct CPU {
 
 struct MemoryBus {
     memory: [u8; 0xFFFF],
+    gpu: GPU,
 }
 
 impl MemoryBus {
     fn read_byte(&self, address: u16) -> u8 {
-        self.memory[address as usize]
+        match address {
+            VRAM_BEGIN..VRAM_END => self.gpu.read_memory(get_vram_address(address)),
+            _ => self.memory[address as usize],
+        }
     }
 
     fn write_byte(&mut self, address: u16, value: u8) {
-        self.memory[address as usize] = value;
+        match address {
+            VRAM_BEGIN..VRAM_END => self.gpu.write_memory(get_vram_address(address), value),
+            _ => self.memory[address as usize] = value,
+        }
     }
 }
 
